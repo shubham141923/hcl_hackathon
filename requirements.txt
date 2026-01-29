@@ -1,26 +1,18 @@
 # FastAPI and server
 fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
+uvicorn>=0.27.0
 python-multipart>=0.0.6
 
-# Audio processing
+# Audio processing (core only)
 librosa>=0.10.1
 soundfile>=0.12.1
-pydub>=0.25.1
 numpy>=1.24.0,<2.0.0
 scipy>=1.11.0
 
 # Machine Learning
 scikit-learn>=1.3.0
-joblib>=1.3.0
 
 # Environment and utilities
 python-dotenv>=1.0.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
-
-# For audio format handling
-audioread>=3.0.1
-
-# Production server
-gunicorn>=21.0.0

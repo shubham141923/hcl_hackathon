@@ -1,37 +1,18 @@
-# Use Python 3.11
+# Python 3.11 slim image
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies for audio processing
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    libsndfile1 \
+# Install audio dependencies
+RUN apt-get update && apt-get install -y ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
+# Install Python packages
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy app
 COPY . .
 
-# Create models directory
-RUN mkdir -p models
-
-# Expose port
-EXPOSE 10000
-
-# Set environment variables
-ENV HOST=0.0.0.0
-ENV DEBUG=false
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-10000}/api/health || exit 1
-
-# Run with uvicorn
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --timeout-keep-alive 120
+# Run server
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}
