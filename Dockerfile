@@ -1,4 +1,4 @@
-# Use Python 3.11 slim image
+# Use Python 3.11
 FROM python:3.11-slim
 
 # Set working directory
@@ -22,13 +22,12 @@ COPY . .
 # Create models directory
 RUN mkdir -p models
 
-# Expose port
-EXPOSE 8000
+# Expose port (Render uses PORT env variable)
+EXPOSE 10000
 
 # Set environment variables
 ENV HOST=0.0.0.0
-ENV PORT=8000
 ENV DEBUG=false
 
-# Run the application
-CMD ["python", "run.py"]
+# Run with gunicorn for production
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]

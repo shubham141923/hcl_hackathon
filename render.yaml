@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: voice-detection-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: API_KEY
+        sync: false
+      - key: PORT
+        value: 10000
+      - key: DEBUG
+        value: false
+    healthCheckPath: /api/health
