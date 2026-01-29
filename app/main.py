@@ -95,6 +95,21 @@ app.include_router(
 )
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Preload heavy libraries on startup to avoid timeout on first request"""
+    print("Preloading libraries...")
+    try:
+        import librosa
+        import numpy as np
+        # Quick warmup to initialize numba JIT compilation
+        dummy_signal = np.zeros(22050, dtype=np.float32)
+        _ = librosa.feature.mfcc(y=dummy_signal, sr=22050, n_mfcc=13)
+        print("Libraries preloaded successfully!")
+    except Exception as e:
+        print(f"Warning: Failed to preload libraries: {e}")
+
+
 # Root endpoint
 @app.get("/", tags=["Root"])
 async def root():
