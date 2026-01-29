@@ -1,5 +1,5 @@
 # Use Python 3.11
-FROM python:3.11
+FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
@@ -22,12 +22,16 @@ COPY . .
 # Create models directory
 RUN mkdir -p models
 
-# Expose port (Render uses PORT env variable)
+# Expose port
 EXPOSE 10000
 
 # Set environment variables
 ENV HOST=0.0.0.0
 ENV DEBUG=false
 
-# Run with gunicorn for production
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-10000}/api/health || exit 1
+
+# Run with uvicorn
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --timeout-keep-alive 120
