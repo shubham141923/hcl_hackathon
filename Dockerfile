@@ -1,18 +1,20 @@
-# Python 3.11 slim image
+# Python 3.11
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install audio dependencies
-RUN apt-get update && apt-get install -y ffmpeg libsndfile1 \
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python packages
+# Python packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app
+# App
 COPY . .
 
-# Run server
+# Run
 CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}

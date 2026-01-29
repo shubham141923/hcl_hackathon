@@ -1,213 +1,193 @@
 """
 Audio Processing Service
-Handles audio decoding, feature extraction, and preprocessing for voice analysis
+Uses librosa, pydub, torchaudio for audio processing
 """
 import base64
 import io
 import tempfile
 import os
-from typing import Dict, Any, Tuple, Optional
 import numpy as np
+from typing import Dict, Any, Tuple
 
 
 class AudioProcessor:
-    """
-    Processes audio files for voice detection analysis.
-    Extracts various audio features used for AI vs Human classification.
-    """
+    """Process audio files for voice detection"""
     
-    def __init__(self, sample_rate: int = 22050):
-        """
-        Initialize the audio processor.
-        
-        Args:
-            sample_rate: Target sample rate for audio processing
-        """
+    def __init__(self, sample_rate: int = 16000):
         self.sample_rate = sample_rate
         self._librosa = None
-        self._sf = None
+        self._torch = None
+        self._torchaudio = None
+        self._noisereduce = None
     
-    def _get_librosa(self):
-        """Lazy load librosa to improve startup time"""
+    @property
+    def librosa(self):
         if self._librosa is None:
             import librosa
             self._librosa = librosa
         return self._librosa
     
-    def _get_soundfile(self):
-        """Lazy load soundfile"""
-        if self._sf is None:
-            import soundfile as sf
-            self._sf = sf
-        return self._sf
+    @property
+    def torch(self):
+        if self._torch is None:
+            import torch
+            self._torch = torch
+        return self._torch
     
-    def decode_base64_audio(self, audio_base64: str) -> bytes:
-        """
-        Decode base64 encoded audio data.
-        
-        Args:
-            audio_base64: Base64 encoded audio string
-            
-        Returns:
-            Raw audio bytes
-            
-        Raises:
-            ValueError: If base64 decoding fails
-        """
+    @property
+    def torchaudio(self):
+        if self._torchaudio is None:
+            import torchaudio
+            self._torchaudio = torchaudio
+        return self._torchaudio
+    
+    @property
+    def noisereduce(self):
+        if self._noisereduce is None:
+            import noisereduce as nr
+            self._noisereduce = nr
+        return self._noisereduce
+    
+    def decode_base64(self, audio_base64: str) -> bytes:
+        """Decode base64 audio"""
         try:
             return base64.b64decode(audio_base64)
         except Exception as e:
-            raise ValueError(f"Failed to decode base64 audio: {str(e)}")
+            raise ValueError(f"Invalid base64: {e}")
     
-    def load_audio_from_bytes(self, audio_bytes: bytes) -> Tuple[np.ndarray, int]:
-        """
-        Load audio from bytes and return as numpy array.
-        
-        Args:
-            audio_bytes: Raw audio bytes (MP3 format)
-            
-        Returns:
-            Tuple of (audio signal as numpy array, sample rate)
-            
-        Raises:
-            ValueError: If audio loading fails
-        """
-        librosa = self._get_librosa()
-        
-        # Create a temporary file to handle MP3 format
-        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp_file:
-            tmp_file.write(audio_bytes)
-            tmp_path = tmp_file.name
+    def load_audio(self, audio_bytes: bytes) -> Tuple[np.ndarray, int]:
+        """Load audio from bytes"""
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
+            f.write(audio_bytes)
+            temp_path = f.name
         
         try:
-            # Load audio using librosa
-            audio_signal, sr = librosa.load(
-                tmp_path,
-                sr=self.sample_rate,
-                mono=True
-            )
-            return audio_signal, sr
-        except Exception as e:
-            raise ValueError(f"Failed to load audio: {str(e)}")
+            # Load with librosa
+            audio, sr = self.librosa.load(temp_path, sr=self.sample_rate, mono=True)
+            return audio, sr
         finally:
-            # Clean up temporary file
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
     
-    def extract_features(self, audio_signal: np.ndarray, sr: int) -> Dict[str, Any]:
-        """
-        Extract comprehensive audio features for voice analysis.
-        
-        Features extracted:
-        - MFCC (Mel-frequency cepstral coefficients)
-        - Spectral features (centroid, bandwidth, contrast, rolloff)
-        - Zero crossing rate
-        - RMS energy
-        - Pitch features
-        - Tempo-based features
-        
-        Args:
-            audio_signal: Audio signal as numpy array
-            sr: Sample rate
-            
-        Returns:
-            Dictionary of extracted features
-        """
-        librosa = self._get_librosa()
-        features = {}
-        
+    def reduce_noise(self, audio: np.ndarray, sr: int) -> np.ndarray:
+        """Apply noise reduction"""
         try:
-            # 1. MFCC Features (most important for voice analysis)
-            mfccs = librosa.feature.mfcc(y=audio_signal, sr=sr, n_mfcc=20)
-            features['mfcc_mean'] = np.mean(mfccs, axis=1).tolist()
-            features['mfcc_std'] = np.std(mfccs, axis=1).tolist()
-            features['mfcc_delta_mean'] = np.mean(librosa.feature.delta(mfccs), axis=1).tolist()
-            
-            # 2. Spectral Centroid (brightness of sound)
-            spectral_centroid = librosa.feature.spectral_centroid(y=audio_signal, sr=sr)[0]
-            features['spectral_centroid_mean'] = float(np.mean(spectral_centroid))
-            features['spectral_centroid_std'] = float(np.std(spectral_centroid))
-            
-            # 3. Spectral Bandwidth
-            spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_signal, sr=sr)[0]
-            features['spectral_bandwidth_mean'] = float(np.mean(spectral_bandwidth))
-            features['spectral_bandwidth_std'] = float(np.std(spectral_bandwidth))
-            
-            # 4. Spectral Contrast
-            spectral_contrast = librosa.feature.spectral_contrast(y=audio_signal, sr=sr)
-            features['spectral_contrast_mean'] = np.mean(spectral_contrast, axis=1).tolist()
-            
-            # 5. Spectral Rolloff
-            spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_signal, sr=sr)[0]
-            features['spectral_rolloff_mean'] = float(np.mean(spectral_rolloff))
-            features['spectral_rolloff_std'] = float(np.std(spectral_rolloff))
-            
-            # 6. Zero Crossing Rate (voice texture indicator)
-            zcr = librosa.feature.zero_crossing_rate(audio_signal)[0]
-            features['zcr_mean'] = float(np.mean(zcr))
-            features['zcr_std'] = float(np.std(zcr))
-            
-            # 7. RMS Energy (loudness patterns)
-            rms = librosa.feature.rms(y=audio_signal)[0]
-            features['rms_mean'] = float(np.mean(rms))
-            features['rms_std'] = float(np.std(rms))
-            
-            # 8. Pitch/F0 Features using piptrack
-            pitches, magnitudes = librosa.piptrack(y=audio_signal, sr=sr)
-            pitch_values = pitches[pitches > 0]
-            if len(pitch_values) > 0:
-                features['pitch_mean'] = float(np.mean(pitch_values))
-                features['pitch_std'] = float(np.std(pitch_values))
-                features['pitch_range'] = float(np.max(pitch_values) - np.min(pitch_values))
-            else:
-                features['pitch_mean'] = 0.0
-                features['pitch_std'] = 0.0
-                features['pitch_range'] = 0.0
-            
-            # 9. Tempo and Beat Features
-            tempo, _ = librosa.beat.beat_track(y=audio_signal, sr=sr)
-            features['tempo'] = float(tempo) if isinstance(tempo, (int, float, np.floating, np.integer)) else float(tempo[0]) if len(tempo) > 0 else 0.0
-            
-            # 10. Mel Spectrogram Statistics
-            mel_spec = librosa.feature.melspectrogram(y=audio_signal, sr=sr, n_mels=128)
-            mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-            features['mel_spec_mean'] = float(np.mean(mel_spec_db))
-            features['mel_spec_std'] = float(np.std(mel_spec_db))
-            
-            # 11. Chroma Features (harmonic content)
-            chroma = librosa.feature.chroma_stft(y=audio_signal, sr=sr)
-            features['chroma_mean'] = np.mean(chroma, axis=1).tolist()
-            features['chroma_std'] = np.mean(np.std(chroma, axis=1)).tolist() if hasattr(np.std(chroma, axis=1), 'tolist') else float(np.mean(np.std(chroma, axis=1)))
-            
-            # 12. Duration
-            features['duration'] = float(len(audio_signal) / sr)
-            
-        except Exception as e:
-            raise ValueError(f"Feature extraction failed: {str(e)}")
+            return self.noisereduce.reduce_noise(y=audio, sr=sr)
+        except:
+            return audio
+    
+    def extract_features(self, audio: np.ndarray, sr: int) -> Dict[str, Any]:
+        """Extract comprehensive audio features"""
+        features = {}
+        librosa = self.librosa
+        
+        # 1. MFCCs - Most important for voice
+        mfccs = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=20)
+        features['mfcc_mean'] = np.mean(mfccs, axis=1).tolist()
+        features['mfcc_std'] = np.std(mfccs, axis=1).tolist()
+        features['mfcc_var'] = np.var(mfccs, axis=1).tolist()
+        
+        # 2. Spectral features
+        spec_cent = librosa.feature.spectral_centroid(y=audio, sr=sr)[0]
+        features['spectral_centroid_mean'] = float(np.mean(spec_cent))
+        features['spectral_centroid_std'] = float(np.std(spec_cent))
+        
+        spec_bw = librosa.feature.spectral_bandwidth(y=audio, sr=sr)[0]
+        features['spectral_bandwidth_mean'] = float(np.mean(spec_bw))
+        features['spectral_bandwidth_std'] = float(np.std(spec_bw))
+        
+        spec_rolloff = librosa.feature.spectral_rolloff(y=audio, sr=sr)[0]
+        features['spectral_rolloff_mean'] = float(np.mean(spec_rolloff))
+        features['spectral_rolloff_std'] = float(np.std(spec_rolloff))
+        
+        spec_contrast = librosa.feature.spectral_contrast(y=audio, sr=sr)
+        features['spectral_contrast_mean'] = np.mean(spec_contrast, axis=1).tolist()
+        
+        # 3. Zero crossing rate
+        zcr = librosa.feature.zero_crossing_rate(audio)[0]
+        features['zcr_mean'] = float(np.mean(zcr))
+        features['zcr_std'] = float(np.std(zcr))
+        
+        # 4. RMS Energy
+        rms = librosa.feature.rms(y=audio)[0]
+        features['rms_mean'] = float(np.mean(rms))
+        features['rms_std'] = float(np.std(rms))
+        
+        # 5. Pitch features
+        pitches, magnitudes = librosa.piptrack(y=audio, sr=sr)
+        pitch_values = pitches[pitches > 0]
+        if len(pitch_values) > 0:
+            features['pitch_mean'] = float(np.mean(pitch_values))
+            features['pitch_std'] = float(np.std(pitch_values))
+            features['pitch_range'] = float(np.max(pitch_values) - np.min(pitch_values))
+        else:
+            features['pitch_mean'] = 0.0
+            features['pitch_std'] = 0.0
+            features['pitch_range'] = 0.0
+        
+        # 6. Mel spectrogram stats
+        mel_spec = librosa.feature.melspectrogram(y=audio, sr=sr, n_mels=128)
+        mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+        features['mel_spec_mean'] = float(np.mean(mel_spec_db))
+        features['mel_spec_std'] = float(np.std(mel_spec_db))
+        
+        # 7. Chroma features
+        chroma = librosa.feature.chroma_stft(y=audio, sr=sr)
+        features['chroma_mean'] = np.mean(chroma, axis=1).tolist()
+        
+        # 8. Tempo
+        tempo, _ = librosa.beat.beat_track(y=audio, sr=sr)
+        features['tempo'] = float(tempo) if np.isscalar(tempo) else float(tempo[0])
+        
+        # 9. Duration
+        features['duration'] = float(len(audio) / sr)
         
         return features
     
-    def process_audio(self, audio_base64: str) -> Dict[str, Any]:
-        """
-        Complete audio processing pipeline.
+    def get_mel_spectrogram_tensor(self, audio: np.ndarray, sr: int):
+        """Get mel spectrogram as PyTorch tensor for model input"""
+        torch = self.torch
+        torchaudio = self.torchaudio
         
-        Args:
-            audio_base64: Base64 encoded MP3 audio
-            
-        Returns:
-            Dictionary containing all extracted features
-        """
-        # Decode base64
-        audio_bytes = self.decode_base64_audio(audio_base64)
+        # Convert to tensor
+        waveform = torch.from_numpy(audio).float().unsqueeze(0)
         
-        # Load audio
-        audio_signal, sr = self.load_audio_from_bytes(audio_bytes)
+        # Create mel spectrogram
+        mel_transform = torchaudio.transforms.MelSpectrogram(
+            sample_rate=sr,
+            n_mels=128,
+            n_fft=1024,
+            hop_length=512
+        )
+        
+        mel_spec = mel_transform(waveform)
+        
+        # Convert to dB
+        amplitude_to_db = torchaudio.transforms.AmplitudeToDB()
+        mel_spec_db = amplitude_to_db(mel_spec)
+        
+        return mel_spec_db
+    
+    def process(self, audio_base64: str) -> Dict[str, Any]:
+        """Full processing pipeline"""
+        # Decode
+        audio_bytes = self.decode_base64(audio_base64)
+        
+        # Load
+        audio, sr = self.load_audio(audio_bytes)
+        
+        # Noise reduction
+        audio = self.reduce_noise(audio, sr)
         
         # Extract features
-        features = self.extract_features(audio_signal, sr)
+        features = self.extract_features(audio, sr)
+        
+        # Add raw audio for model
+        features['_audio'] = audio
+        features['_sr'] = sr
         
         return features
 
 
-# Global processor instance
+# Global instance
 audio_processor = AudioProcessor()
